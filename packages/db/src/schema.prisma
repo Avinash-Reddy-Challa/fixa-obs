@@ -1,0 +1,371 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // previewFeatures = ["multiSchema"]
+}
+
+generator zod {
+  provider = "zod-prisma-types"
+  output   = "../../types/src/generated"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// model User {
+//   id        String   @id // Should be the clerkId
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+
+//   email     String? @unique
+//   username  String? @unique
+//   firstName String?
+//   lastName  String?
+// }
+
+model ApiKey {
+  orgId  String @id
+  apiKey String
+}
+
+model Agent {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  ownerId     String
+  name        String
+  phoneNumber String   @default("")
+
+  customerAgentId String
+  githubRepoUrl   String?
+  systemPrompt    String  @default("")
+  extraProperties Json    @default("{}")
+
+  enableSlackNotifications Boolean @default(true)
+
+  enabledTestAgents  TestAgent[]
+  scenarios          Scenario[]
+  tests              Test[]
+  calls              Call[]
+  generalEvaluations GeneralEvaluation[]
+}
+
+model Test {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String
+  calls   Call[]
+
+  gitBranch  String?
+  gitCommit  String?
+  runFromApi Boolean @default(false) // If true, the test was run via the API
+}
+
+model TestAgent {
+  id          String  @id @default(uuid())
+  ownerId     String?
+  name        String
+  headshotUrl String
+  description String
+  prompt      String
+
+  enabled         Boolean @default(true)
+  defaultSelected Boolean @default(false)
+  order           Int     @default(0)
+
+  agents Agent[]
+  calls  Call[]
+}
+
+model Call {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  ownerId   String?
+  deleted   Boolean  @default(false)
+
+  vapiCallId         String?
+  customerCallId     String?
+  ofOneDeviceId      String?
+  status             CallStatus
+  result             CallResult?
+  failureReason      String?
+  stereoRecordingUrl String
+  monoRecordingUrl   String?
+  startedAt          String?
+  endedAt            String?
+  regionId           String?
+  metadata           Json?
+  timeToFirstWord    Float?
+  latencyP50         Float?
+  latencyP90         Float?
+  latencyP95         Float?
+  interruptionP50    Float?
+  interruptionP90    Float?
+  interruptionP95    Float?
+  numInterruptions   Int?
+  duration           Float?
+
+  notes String?
+
+  isRead Boolean? // whether the call has been read
+  readBy String? // userId of the user who read the call
+
+  agent   Agent?  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String?
+
+  test              Test?              @relation(fields: [testId], references: [id], onDelete: Cascade)
+  testId            String?
+  testAgent         TestAgent?         @relation(fields: [testAgentId], references: [id], onDelete: Cascade)
+  testAgentId       String?
+  scenario          Scenario?          @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  scenarioId        String?
+  evaluationResults EvaluationResult[]
+
+  messages      Message[]
+  latencyBlocks LatencyBlock[]
+  interruptions Interruption[]
+
+  errors           CallError[]
+  evalSetToSuccess Json        @default("{}")
+
+  @@index([ownerId])
+}
+
+model Message {
+  id               String @id @default(uuid())
+  role             Role
+  message          String @default("")
+  time             Float  @default(0)
+  endTime          Float  @default(0)
+  secondsFromStart Float  @default(0)
+  duration         Float  @default(0)
+  name             String @default("")
+  result           String @default("")
+  toolCalls        Json   @default("[]")
+
+  call   Call   @relation(fields: [callId], references: [id], onDelete: Cascade)
+  callId String
+}
+
+model CallError {
+  id               String  @id @default(uuid())
+  secondsFromStart Float
+  duration         Float
+  type             String?
+  description      String
+  call             Call    @relation(fields: [callId], references: [id], onDelete: Cascade)
+  callId           String
+}
+
+enum CallResult {
+  success
+  failure
+}
+
+enum Role {
+  user
+  bot
+  system
+  tool_calls
+  tool_call_result
+}
+
+enum CallStatus {
+  queued
+  in_progress
+  analyzing
+  completed
+}
+
+model CallRecording {
+  id        String   @id
+  audioUrl  String
+  createdAt DateTime @default(now())
+  processed Boolean  @default(false)
+  agentId   String?
+  regionId  String?
+  duration  Float?
+}
+
+model Scenario {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String
+
+  name            String
+  instructions    String
+  successCriteria String @default("")
+
+  includeDateTime Boolean @default(false)
+  timezone        String?
+
+  calls       Call[]
+  evaluations Evaluation[]
+
+  deleted Boolean @default(false)
+}
+
+model EvaluationTemplate {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  name        String
+  description String
+  params      String[]
+
+  contentType            EvalContentType @default(content)
+  toolCallExpectedResult String          @default("")
+
+  evaluationResults EvaluationResult[]
+
+  ownerId String?
+
+  deleted     Boolean      @default(false)
+  hidden      Boolean      @default(false)
+  evaluations Evaluation[]
+}
+
+model GeneralEvaluation {
+  id           String     @id @default(uuid())
+  agentId      String
+  agent        Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  evaluationId String
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id])
+}
+
+model Evaluation {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  enabled    Boolean  @default(true)
+  isCritical Boolean  @default(true)
+
+  params Json @default("{}")
+
+  evaluationTemplate   EvaluationTemplate @relation(fields: [evaluationTemplateId], references: [id], onDelete: Cascade)
+  evaluationTemplateId String
+
+  scenario   Scenario? @relation(fields: [scenarioId], references: [id])
+  scenarioId String?
+
+  evaluationGroup   EvaluationGroup? @relation(fields: [evaluationGroupId], references: [id])
+  evaluationGroupId String?
+
+  evaluationResults  EvaluationResult[]
+  generalEvaluations GeneralEvaluation[]
+}
+
+model EvaluationResult {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  call   Call?   @relation(fields: [callId], references: [id])
+  callId String?
+
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  evaluationId String
+
+  result           String
+  success          Boolean
+  secondsFromStart Float?
+  duration         Float?
+  type             EvalResultType
+  details          String
+
+  evaluationTemplate   EvaluationTemplate? @relation(fields: [evaluationTemplateId], references: [id])
+  evaluationTemplateId String?
+}
+
+enum EvalType {
+  scenario
+  general
+}
+
+enum EvalResultType {
+  boolean
+  number
+  percentage
+}
+
+enum EvalContentType {
+  tool
+  content
+}
+
+model LatencyBlock {
+  id               String @id @default(uuid())
+  secondsFromStart Float
+  duration         Float
+  call             Call   @relation(fields: [callId], references: [id], onDelete: Cascade)
+  callId           String
+}
+
+model Interruption {
+  id               String @id @default(uuid())
+  secondsFromStart Float
+  duration         Float
+  call             Call   @relation(fields: [callId], references: [id], onDelete: Cascade)
+  callId           String
+  text             String
+}
+
+model EvaluationGroup {
+  id            String       @id @default(uuid())
+  createdAt     DateTime     @default(now())
+  ownerId       String
+  name          String
+  condition     String       @default("")
+  evaluations   Evaluation[]
+  enabled       Boolean      @default(true)
+  savedSearch   SavedSearch? @relation(fields: [savedSearchId], references: [id], onDelete: Cascade)
+  savedSearchId String?
+}
+
+model SavedSearch {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  name      String
+  ownerId   String
+
+  // If true, this is the default saved search for the user, shown in the "dashboard" tab
+  isDefault Boolean @default(false)
+
+  agentId        String[]
+  lookbackPeriod Json
+  timeRange      Json?
+  chartPeriod    Int
+  customerCallId String?
+  metadata       Json?
+
+  evaluationGroups EvaluationGroup[]
+  alerts           Alert[]
+}
+
+model Alert {
+  id            String      @id @default(uuid())
+  createdAt     DateTime    @default(now())
+  ownerId       String
+  name          String
+  savedSearch   SavedSearch @relation(fields: [savedSearchId], references: [id], onDelete: Cascade)
+  savedSearchId String
+  type          AlertType
+  details       Json
+  enabled       Boolean     @default(true)
+}
+
+enum AlertType {
+  evalSet
+  latency
+}
